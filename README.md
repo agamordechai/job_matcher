@@ -1,6 +1,30 @@
-   cp .env.example .env
+# Job Matcher
+
+An intelligent job matching system that automatically fetches job postings, matches them against your CV using AI, and sends email notifications for relevant opportunities.
+
+## Features
+
+- **CV Management**: Upload and manage your CV (PDF/DOCX format)
+- **Job Fetching**: Automated scraping of job boards (LinkedIn, Drushim, etc.)
+- **AI Matching**: Smart job matching using Claude AI
+- **Filtering**: Customizable search filters (keywords, location, salary, etc.)
+- **Scheduling**: Automated job fetching with configurable intervals
+- **Email Notifications**: Get notified about matching jobs
+
+## Quick Start
+
+### Using Docker (Recommended)
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd job_matcher
    ```
-   
+
+2. **Set up environment variables**:
+   ```bash
+   cp .env.example .env
+   ```   
    Edit `.env` and add your API keys and configuration.
 
 3. **Start the services**:
@@ -25,6 +49,12 @@
 
 2. **Install dependencies**:
    ```bash
+   # Create virtual environment and install dependencies
+   uv sync
+   
+   # Or manually:
+   uv venv
+   source .venv/bin/activate  # On macOS/Linux
    uv pip install -e .
    ```
 
@@ -116,58 +146,3 @@ This is a personal project, but suggestions and improvements are welcome!
 ## License
 
 MIT License
-[project]
-name = "job-matcher"
-version = "0.1.0"
-description = "Job Matching Microservice System"
-readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.104.0",
-    "uvicorn[standard]>=0.24.0",
-    "sqlalchemy>=2.0.0",
-    "psycopg2-binary>=2.9.9",
-    "alembic>=1.12.0",
-    "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
-    "python-multipart>=0.0.6",
-    "anthropic>=0.7.0",
-    "redis>=5.0.0",
-    "celery>=5.3.0",
-    "python-jose[cryptography]>=3.3.0",
-    "passlib[bcrypt]>=1.7.4",
-    "python-dotenv>=1.0.0",
-    "httpx>=0.25.0",
-    "pypdf>=3.17.0",
-    "python-docx>=1.1.0",
-    "playwright>=1.40.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-cov>=4.1.0",
-    "black>=23.11.0",
-    "ruff>=0.1.6",
-    "mypy>=1.7.0",
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.black]
-line-length = 100
-target-version = ["py312"]
-
-[tool.ruff]
-line-length = 100
-target-version = "py312"
-
-[tool.mypy]
-python_version = "3.12"
-strict = true
-warn_return_any = true
-warn_unused_configs = true
-
