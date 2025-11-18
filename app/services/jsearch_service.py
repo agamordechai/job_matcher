@@ -33,7 +33,6 @@ class JSearchService:
         page: int = 1,
         num_pages: int = 1,
         date_posted: str = "all",
-        linkedin_only: bool = True,
     ) -> Dict[str, Any]:
         """
         Search for jobs using JSearch API
@@ -47,16 +46,15 @@ class JSearchService:
             page: Page number (default: 1)
             num_pages: Number of pages to fetch (default: 1)
             date_posted: Filter by date posted (all, today, 3days, week, month)
-            linkedin_only: Only search LinkedIn jobs (default: True)
 
         Returns:
             Dict containing job listings and metadata
+
+        Note:
+            JSearch aggregates jobs from multiple sources (LinkedIn, Indeed, Glassdoor, etc.).
+            The API does not support filtering by specific job boards.
         """
         url = f"{self.BASE_URL}/search"
-
-        # Note: JSearch aggregates from multiple sources (LinkedIn, Indeed, Glassdoor, etc.)
-        # The API doesn't support filtering by specific sources directly
-        # Using site:linkedin.com in query may not work as expected
         search_query = query
 
         params = {
@@ -269,8 +267,7 @@ class JSearchService:
                 employment_types=employment_types,
                 job_requirements=job_requirements,
                 num_pages=max_pages,
-                date_posted="week",  # Only get jobs from the last week
-                linkedin_only=settings.search_linkedin_only,
+                date_posted=settings.search_date_posted,  # Use configurable date range
             )
 
             # Parse results

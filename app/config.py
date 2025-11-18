@@ -32,18 +32,17 @@ class Settings(BaseSettings):
     notification_email: str = ""
 
     # Scheduler
-    fetch_interval_minutes: int = 60
-    timezone: str = "UTC"
+    fetch_interval_minutes: int = 30
+    timezone: str = "Asia/Jerusalem"
 
-    # Job Search Filters (Defaults)
-    search_keywords: str = "Software Engineer,Back End Developer,Data Engineer"
-    search_location: str = "Israel"
+    # Job Search Filters (Defaults - POC: US Remote Jobs)
+    search_keywords: str = "Software Engineer,Backend Developer,Data Engineer"
+    search_location: str = "United States"
     search_job_type: str = ""  # Empty = no filter
     search_experience_level: str = ""  # Empty = no filter
-    search_remote_only: bool = False
-    search_date_posted: str = "week"
-    search_max_pages: int = 1
-    search_linkedin_only: bool = True
+    search_remote_only: bool = True  # Remote jobs for POC
+    search_date_posted: str = "month"
+    search_max_pages: int = 2
 
     # Storage
     storage_path: str = "./storage"

@@ -22,10 +22,35 @@ celery_app.conf.update(
 )
 
 # Configure periodic tasks
+# Fetch jobs Sunday-Thursday during specific time windows every 30 minutes
+# Time windows: 9:00-11:00, 14:00-15:00, 17:30-18:00 (Israel timezone)
 celery_app.conf.beat_schedule = {
-    "fetch-jobs-every-hour": {
+    # Morning window: 9:00-11:00 (every 30 minutes: 9:00, 9:30, 10:00, 10:30, 11:00)
+    "fetch-jobs-morning-window": {
         "task": "app.celery_worker.fetch_and_analyze_jobs",
-        "schedule": crontab(minute=0),  # Run every hour at minute 0
+        "schedule": crontab(
+            minute="0,30",
+            hour="9-11",
+            day_of_week="0-4"  # Sunday=0 to Thursday=4
+        ),
+    },
+    # Afternoon window: 14:00-15:00 (every 30 minutes: 14:00, 14:30, 15:00)
+    "fetch-jobs-afternoon-window": {
+        "task": "app.celery_worker.fetch_and_analyze_jobs",
+        "schedule": crontab(
+            minute="0,30",
+            hour="14-15",
+            day_of_week="0-4"  # Sunday=0 to Thursday=4
+        ),
+    },
+    # Evening window: 17:30-18:00 (every 30 minutes: 17:30, 18:00)
+    "fetch-jobs-evening-window": {
+        "task": "app.celery_worker.fetch_and_analyze_jobs",
+        "schedule": crontab(
+            minute="0,30",
+            hour="17-18",
+            day_of_week="0-4"  # Sunday=0 to Thursday=4
+        ),
     },
 }
 
