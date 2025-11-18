@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from app.config import get_settings
 from app.database import init_db
-from app.routers import cv, jobs, filters, scheduler, system
+from app.routers import cv, jobs, filters, scheduler, system, notifications
 
 settings = get_settings()
 
@@ -60,6 +60,7 @@ app.include_router(cv.router, prefix="/api/cv", tags=["CV Management"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Job Management"])
 app.include_router(filters.router, prefix="/api/filters", tags=["Search Filters"])
 app.include_router(scheduler.router, prefix="/api/scheduler", tags=["Scheduler"])
+app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 
 
 @app.get("/")

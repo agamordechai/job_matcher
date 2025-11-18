@@ -30,7 +30,7 @@ celery_app.conf.beat_schedule = {
         "task": "app.celery_worker.fetch_and_analyze_jobs",
         "schedule": crontab(
             minute="0,30",
-            hour="9-11",
+            hour="10-11",
             day_of_week="0-4"  # Sunday=0 to Thursday=4
         ),
     },
@@ -149,6 +149,10 @@ def fetch_and_analyze_jobs():
                 continue
 
         print(f"Job fetch completed: {jobs_fetched} fetched, {jobs_created} new, {jobs_duplicate} duplicates")
+
+        # Send batch email notification if new jobs were created
+        if jobs_created > 0:
+            send_batch_job_notification.delay()
 
         return {
             "status": "success",
@@ -276,19 +280,57 @@ def analyze_job(job_id: int):
         db.close()
 
 
-@celery_app.task(name="app.celery_worker.send_job_notification")
-def send_job_notification(job_id: int):
+@celery_app.task(name="app.celery_worker.send_batch_job_notification")
+def send_batch_job_notification():
     """
-    Send email notification for a matched job
+    Send batch email notification for recently fetched jobs
+    Sends email with list of new jobs (not yet notified)
     """
     from app.database import SessionLocal
+    from app.services.email_service import EmailService
+    from app.services.job_service import JobService
+    from app.models import JobStatus
 
     db = SessionLocal()
 
     try:
-        # TODO: Implement email notification logic
-        print(f"Sending notification for job {job_id}")
-        return {"status": "success", "job_id": job_id}
+        job_service = JobService(db)
+        email_service = EmailService(db)
+
+        # Get jobs that haven't been notified yet (recently created)
+        # We'll notify about jobs with PENDING or ANALYZED status that haven't been notified
+        jobs = db.query(Job).filter(
+            Job.notified_at.is_(None),
+            Job.status.in_([JobStatus.PENDING, JobStatus.ANALYZED])
+        ).order_by(Job.fetched_at.desc()).limit(50).all()  # Limit to 50 most recent
+
+        if not jobs:
+            print("No new jobs to notify about")
+            return {"status": "skipped", "reason": "no_jobs"}
+
+        print(f"Sending batch notification for {len(jobs)} jobs")
+
+        # Send batch notification
+        result = email_service.send_batch_notification(jobs)
+
+        # Mark jobs as notified if email was sent successfully
+        if result.get("status") == "success":
+            from datetime import datetime
+            for job in jobs:
+                job.notified_at = datetime.utcnow()
+                job.status = JobStatus.NOTIFIED
+            db.commit()
+            print(f"Marked {len(jobs)} jobs as notified")
+
+        return result
+
+    except Exception as e:
+        print(f"Error in send_batch_job_notification: {str(e)}")
+        db.rollback()
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
     finally:
         db.close()

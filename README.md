@@ -236,7 +236,9 @@ RAPIDAPI_HOST=jsearch.p.rapidapi.com
 ANTHROPIC_API_KEY=your_actual_anthropic_key_here
 ```
 
-#### 3. Email Configuration (Optional - Notifications - Phase 6)
+#### 3. Email Configuration (Optional - Notifications)
+
+**Status**: ✅ **Active** - Batch email notifications are now working!
 
 **For Gmail**:
 1. Enable 2-factor authentication
@@ -250,6 +252,15 @@ SMTP_USER=your_email@gmail.com
 SMTP_PASS=your_16_char_app_password
 NOTIFICATION_EMAIL=your_email@gmail.com
 ```
+
+**What you'll get**:
+- Automatic email notifications after each job fetch cycle
+- Batch format with all new jobs in one email
+- Clean, formatted list showing:
+  - Company name
+  - Job title
+  - Location (city, state, country)
+  - Direct link to apply
 
 ### Job Search Configuration
 
@@ -311,6 +322,11 @@ FETCH_INTERVAL_MINUTES=480
 - `POST /api/scheduler/trigger` - Trigger job fetch manually
 - `GET /api/scheduler/status` - Get scheduler status
 - `PUT /api/scheduler/config` - Update scheduler configuration
+
+### Notifications
+- `POST /api/notifications/trigger` - Send batch email notification for new jobs
+- `GET /api/notifications/status` - Get email configuration status
+- `GET /api/notifications/history` - Get notification history
 
 ## 🎯 Usage Examples
 
@@ -397,6 +413,25 @@ curl -X PUT "http://localhost:8000/api/filters/1" \
 ```bash
 curl -X DELETE "http://localhost:8000/api/filters/1"
 ```
+
+### 6. Email Notifications
+
+**Check notification status**:
+```bash
+curl "http://localhost:8000/api/notifications/status" | jq
+```
+
+**Trigger batch notification manually**:
+```bash
+curl -X POST "http://localhost:8000/api/notifications/trigger"
+```
+
+**View notification history**:
+```bash
+curl "http://localhost:8000/api/notifications/history" | jq
+```
+
+**Note**: Notifications are automatically sent after each job fetch cycle if new jobs are found.
 
 ## 🔧 Troubleshooting
 
@@ -597,7 +632,7 @@ To enable other job boards (Indeed, Glassdoor), see `app/services/jsearch_servic
 - [x] **Phase 3**: Job Fetching (JSearch API - LinkedIn integration)
 - [ ] **Phase 4**: AI Matching with Claude (Coming Soon)
 - [x] **Phase 5**: Scheduling & Automation (Basic setup complete)
-- [ ] **Phase 6**: Email Notifications (Coming Soon)
+- [x] **Phase 6**: Email Notifications (Batch notifications implemented)
 - [ ] **Phase 7**: Testing & Documentation
 - [ ] **Phase 8**: Deployment
 
