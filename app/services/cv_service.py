@@ -88,9 +88,13 @@ class CVService:
         """Get the currently active CV"""
         return self.db.query(CV).filter(CV.is_active == True).first()
 
+    def get_cv(self, cv_id: int) -> Optional[CV]:
+        """Get a specific CV by ID"""
+        return self.db.query(CV).filter(CV.id == cv_id).first()
+
     def get_all_cvs(self) -> List[CV]:
-        """Get all CVs"""
-        return self.db.query(CV).order_by(CV.uploaded_at.desc()).all()
+        """Get all active CVs"""
+        return self.db.query(CV).filter(CV.is_active == True).order_by(CV.uploaded_at.desc()).all()
 
     def update_summary(self, summary: str) -> Optional[CV]:
         """Update CV summary"""
@@ -102,11 +106,19 @@ class CVService:
         return cv
 
     def delete_cv(self, cv_id: int) -> bool:
-        """Soft delete a CV"""
+        """Delete a CV (hard delete - removes from database and filesystem)"""
         cv = self.db.query(CV).filter(CV.id == cv_id).first()
         if cv:
-            cv.is_active = False
+            # Delete the physical file
+            try:
+                if os.path.exists(cv.file_path):
+                    os.remove(cv.file_path)
+            except Exception as e:
+                # Log but don't fail if file deletion fails
+                print(f"Warning: Could not delete file {cv.file_path}: {str(e)}")
+
+            # Delete from database
+            self.db.delete(cv)
             self.db.commit()
             return True
         return False
-

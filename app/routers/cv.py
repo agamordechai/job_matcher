@@ -58,7 +58,7 @@ async def update_cv_summary(
 
 @router.delete("/{cv_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_cv(cv_id: int, db: Session = Depends(get_db)):
-    """Delete a CV (soft delete - marks as inactive)"""
+    """Delete a CV (permanently removes from database and deletes file)"""
     cv_service = CVService(db)
     success = cv_service.delete_cv(cv_id)
     if not success:
@@ -67,4 +67,3 @@ async def delete_cv(cv_id: int, db: Session = Depends(get_db)):
             detail="CV not found"
         )
     return None
-

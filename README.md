@@ -1,19 +1,62 @@
 # Job Matcher
 
-An intelligent job matching system that automatically fetches job postings, matches them against your CV using AI, and sends email notifications for relevant opportunities.
+An intelligent job matching system that automatically fetches job postings from LinkedIn and other job boards, matches them against your CV using AI, and sends email notifications for relevant opportunities.
 
-## Features
+## ✨ Features
 
 - **CV Management**: Upload and manage your CV (PDF/DOCX format)
-- **Job Fetching**: Automated scraping of job boards (LinkedIn, Drushim, etc.)
-- **AI Matching**: Smart job matching using Claude AI
-- **Filtering**: Customizable search filters (keywords, location, salary, etc.)
-- **Scheduling**: Automated job fetching with configurable intervals
-- **Email Notifications**: Get notified about matching jobs
+- **Job Fetching**: Automated job fetching from LinkedIn via JSearch API (can also search Indeed, Glassdoor)
+- **AI Matching**: Smart job matching using Claude AI (Phase 4 - Coming Soon)
+- **Filtering**: Customizable search filters (keywords, location, job type, experience level)
+- **Scheduling**: Automated job fetching with configurable intervals (default: every 8 hours)
+- **Email Notifications**: Get notified about high-match jobs (Phase 6 - Coming Soon)
+- **Deduplication**: Automatic duplicate job detection
+- **Rich Data**: Full job details including salary, requirements, description, and direct application links
 
-## Prerequisites
+## 🚀 Quick Start (5 Minutes)
 
-Before you begin, ensure you have the following installed:
+### Prerequisites
+- Docker Desktop installed and running
+- RapidAPI account with JSearch API subscription (free tier available)
+
+### Setup Steps
+
+1. **Get your RapidAPI key**:
+   - Sign up at [RapidAPI](https://rapidapi.com/)
+   - Subscribe to [JSearch API](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) (FREE tier: 150 requests/month)
+   - Copy your API key
+
+2. **Configure environment**:
+   ```bash
+   # Edit .env file and add your API key
+   RAPIDAPI_KEY=your_actual_rapidapi_key_here
+   ```
+
+3. **Start services**:
+   ```bash
+   docker-compose up -d
+   ```
+
+4. **Upload CV and create filter**:
+   ```bash
+   # Upload CV
+   curl -X POST "http://localhost:8000/api/cv/upload" -F "file=@cv.pdf"
+   
+   # Create default filter
+   curl -X POST "http://localhost:8000/api/filters/default"
+   
+   # Trigger job fetch
+   curl -X POST "http://localhost:8000/api/scheduler/trigger"
+   
+   # View jobs
+   curl "http://localhost:8000/api/jobs/" | jq
+   ```
+
+5. **Access API docs**: Open http://localhost:8000/docs
+
+---
+
+## 📋 Detailed Setup
 
 ### For Docker Setup (Recommended)
 - **Docker**: [Install Docker Desktop](https://www.docker.com/products/docker-desktop)
@@ -24,7 +67,7 @@ Before you begin, ensure you have the following installed:
 - **UV Package Manager**: Install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
 - **Docker** (for PostgreSQL and Redis): [Install Docker Desktop](https://www.docker.com/products/docker-desktop)
 
-## Quick Start
+## Installation
 
 ### Using Docker (Recommended)
 
@@ -43,10 +86,16 @@ Before you begin, ensure you have the following installed:
    
    Edit `.env` and add your API keys:
    ```bash
-   # Required: Add your Anthropic API key for AI matching
+   # Required: Add your RapidAPI key for job fetching
+   # Sign up at: https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+   # Subscribe to JSearch API (free tier: 150 requests/month)
+   RAPIDAPI_KEY=your_rapidapi_key_here
+   RAPIDAPI_HOST=jsearch.p.rapidapi.com
+   
+   # Optional: Add your Anthropic API key for AI matching (Phase 4)
    ANTHROPIC_API_KEY=your_actual_api_key_here
    
-   # Optional: Configure email notifications
+   # Optional: Configure email notifications (Phase 6)
    SMTP_USER=your_email@gmail.com
    SMTP_PASS=your_app_password
    NOTIFICATION_EMAIL=your_email@gmail.com
@@ -153,7 +202,83 @@ This approach runs the FastAPI app locally but uses Docker for PostgreSQL and Re
    celery -A app.celery_worker beat --loglevel=info
    ```
 
-## API Endpoints
+## 🔑 API Configuration
+
+### Required API Keys
+
+#### 1. RapidAPI Key (Required - Job Fetching)
+
+**Get your key**:
+1. Sign up at [RapidAPI](https://rapidapi.com/)
+2. Subscribe to [JSearch API](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch)
+3. Choose the **Basic plan** (FREE - 150 requests/month)
+4. Copy your API key from the code snippet
+
+**Add to `.env`**:
+```bash
+RAPIDAPI_KEY=your_actual_rapidapi_key_here
+RAPIDAPI_HOST=jsearch.p.rapidapi.com
+```
+
+**Free Tier Limits**:
+- 150 requests per month (~5 per day)
+- Each request can fetch up to 10 jobs
+- Sufficient for testing and moderate usage
+
+#### 2. Anthropic API Key (Optional - AI Matching - Phase 4)
+
+**Get your key**:
+1. Sign up at [Anthropic Console](https://console.anthropic.com/)
+2. Create an API key (starts with `sk-ant-`)
+
+**Add to `.env`**:
+```bash
+ANTHROPIC_API_KEY=your_actual_anthropic_key_here
+```
+
+#### 3. Email Configuration (Optional - Notifications - Phase 6)
+
+**For Gmail**:
+1. Enable 2-factor authentication
+2. Generate an [App Password](https://myaccount.google.com/apppasswords)
+
+**Add to `.env`**:
+```bash
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_16_char_app_password
+NOTIFICATION_EMAIL=your_email@gmail.com
+```
+
+### Job Search Configuration
+
+Customize job search filters in `.env`:
+
+```bash
+# Job titles to search for (comma-separated)
+SEARCH_KEYWORDS=Software Engineer,Backend Developer,Full Stack Engineer
+
+# Location
+SEARCH_LOCATION=United States
+
+# Job type (full-time, part-time, contract, internship)
+SEARCH_JOB_TYPE=full-time
+
+# Experience level (internship, entry, mid, senior, lead)
+SEARCH_EXPERIENCE_LEVEL=mid
+
+# Remote only jobs (true/false)
+SEARCH_REMOTE_ONLY=false
+
+# Date posted filter (all, today, 3days, week, month)
+SEARCH_DATE_POSTED=week
+
+# Fetch interval (minutes, default: 480 = 8 hours)
+FETCH_INTERVAL_MINUTES=480
+```
+
+## 📚 API Endpoints
 
 ### System
 - `GET /api/health` - Health check (database and Redis status)
@@ -169,6 +294,8 @@ This approach runs the FastAPI app locally but uses Docker for PostgreSQL and Re
 ### Job Management
 - `GET /api/jobs/` - List jobs (with filters)
 - `GET /api/jobs/{id}` - Get job details
+- `GET /api/jobs/top/matches` - Get top matching jobs
+- `GET /api/jobs/stats/summary` - Get job statistics
 - `PUT /api/jobs/{id}/notified` - Mark as notified
 - `DELETE /api/jobs/{id}` - Delete job
 
@@ -176,6 +303,7 @@ This approach runs the FastAPI app locally but uses Docker for PostgreSQL and Re
 - `GET /api/filters/` - Get all filters
 - `GET /api/filters/{id}` - Get filter by ID
 - `POST /api/filters/` - Create filter
+- `POST /api/filters/default` - Create filter from .env defaults
 - `PUT /api/filters/{id}` - Update filter
 - `DELETE /api/filters/{id}` - Delete filter
 
@@ -184,34 +312,154 @@ This approach runs the FastAPI app locally but uses Docker for PostgreSQL and Re
 - `GET /api/scheduler/status` - Get scheduler status
 - `PUT /api/scheduler/config` - Update scheduler configuration
 
-## Database Schema
+## 🎯 Usage Examples
 
-The application uses PostgreSQL with the following main tables:
-- `cvs` - CV storage with parsed content
-- `jobs` - Job postings with match scores
-- `search_filters` - Job search criteria
-- `scheduler_config` - Scheduler settings
-- `notification_logs` - Email notification history
+### 1. Upload Your CV
 
-## Environment Variables
+```bash
+curl -X POST "http://localhost:8000/api/cv/upload" \
+  -F "file=@/path/to/your/cv.pdf"
+```
 
-See `.env.example` for all available configuration options.
+Or use the interactive API docs at http://localhost:8000/docs
 
-Key variables:
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `ANTHROPIC_API_KEY` - **Required**: Claude API key for AI matching
-- `SMTP_HOST` - Email server (default: smtp.gmail.com)
-- `SMTP_PORT` - Email port (default: 587)
-- `SMTP_USER` - Email username
-- `SMTP_PASS` - Email password/app password
-- `NOTIFICATION_EMAIL` - Recipient email address
-- `FETCH_INTERVAL_MINUTES` - Job fetch interval (default: 60)
-- `TIMEZONE` - Timezone for scheduling (default: UTC)
+### 2. Create a Search Filter
 
-## Troubleshooting
+**Option A: Use defaults from `.env`**:
+```bash
+curl -X POST "http://localhost:8000/api/filters/default"
+```
 
-### Common Issues
+**Option B: Create custom filter**:
+```bash
+curl -X POST "http://localhost:8000/api/filters/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Backend Jobs - Remote",
+    "keywords": ["Software Engineer", "Backend Developer"],
+    "location": "United States",
+    "remote_only": true,
+    "is_active": true
+  }'
+```
+
+### 3. Fetch Jobs
+
+**Manual trigger**:
+```bash
+curl -X POST "http://localhost:8000/api/scheduler/trigger"
+```
+
+**Automatic**: Jobs are fetched automatically based on `FETCH_INTERVAL_MINUTES` (default: 8 hours)
+
+Watch the logs:
+```bash
+docker-compose logs -f celery_worker
+```
+
+### 4. View Jobs
+
+**List all jobs**:
+```bash
+curl "http://localhost:8000/api/jobs/" | jq
+```
+
+**Filter by score**:
+```bash
+curl "http://localhost:8000/api/jobs/?score=high" | jq
+```
+
+**Top matches**:
+```bash
+curl "http://localhost:8000/api/jobs/top/matches?limit=10" | jq
+```
+
+**Statistics**:
+```bash
+curl "http://localhost:8000/api/jobs/stats/summary" | jq
+```
+
+### 5. Manage Filters
+
+**List filters**:
+```bash
+curl "http://localhost:8000/api/filters/"
+```
+
+**Update filter**:
+```bash
+curl -X PUT "http://localhost:8000/api/filters/1" \
+  -H "Content-Type: application/json" \
+  -d '{"is_active": false}'
+```
+
+**Delete filter**:
+```bash
+curl -X DELETE "http://localhost:8000/api/filters/1"
+```
+
+## 🔧 Troubleshooting
+
+### Job Fetching Issues
+
+1. **"No active search filters found" - Job fetch skipped**
+   
+   **Solution**: Create a filter first:
+   ```bash
+   curl -X POST "http://localhost:8000/api/filters/default"
+   ```
+
+2. **"403 Forbidden" or "You are not subscribed to this API"**
+   
+   **Causes**:
+   - Not subscribed to JSearch API on RapidAPI
+   - Invalid API key in `.env`
+   - API key not loaded (need restart)
+   
+   **Solution**:
+   ```bash
+   # 1. Verify subscription at https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch
+   # 2. Check RAPIDAPI_KEY in .env file
+   # 3. Restart services
+   docker-compose restart
+   ```
+
+3. **"429 Too Many Requests" - Rate limited**
+   
+   **Free tier limits**: 150 requests/month (~5/day)
+   
+   **Solution**:
+   - Wait for rate limit to reset (check RapidAPI dashboard)
+   - Increase fetch interval: `FETCH_INTERVAL_MINUTES=720` (12 hours)
+   - Monitor usage at https://rapidapi.com/developer/dashboard
+
+4. **No jobs returned (0 fetched)**
+   
+   **Possible causes**:
+   - Keywords too specific (try "Software Engineer" instead of "Senior React Redux Engineer")
+   - Location too narrow (try "United States" or "Remote")
+   - Too many filters applied
+   - No LinkedIn jobs match criteria
+   
+   **Solution**:
+   ```bash
+   # Try minimal filter
+   curl -X POST "http://localhost:8000/api/filters/" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Test",
+       "keywords": ["Software Engineer"],
+       "location": "United States",
+       "remote_only": true,
+       "is_active": true
+     }'
+   ```
+
+5. **"Job already exists" warnings**
+   
+   This is normal! The system automatically prevents duplicates.
+
+### Service Issues
 
 1. **Port already in use**:
    ```bash
@@ -278,18 +526,82 @@ docker-compose logs -f postgres
 # Logs are printed to the terminal where you ran uvicorn/celery
 ```
 
-## Development Roadmap
+## 💡 Tips & Best Practices
 
-- [x] Phase 1: Setup & Core Infrastructure
-- [x] Phase 2: CV Management (basic implementation)
-- [x] Phase 3: Job Fetching (stub implementation)
-- [ ] Phase 4: AI Matching (TODO)
-- [ ] Phase 5: Scheduling & Automation (basic setup done)
-- [ ] Phase 6: Email Notifications (TODO)
-- [ ] Phase 7: Testing & Documentation
-- [ ] Phase 8: Deployment
+### Optimizing Job Search
 
-## Project Structure
+1. **Use broad keywords**: "Software Engineer" > "Senior Full Stack React Engineer"
+2. **Test filters manually**: Use RapidAPI playground to verify queries work
+3. **Start with remote jobs**: More results, easier to match
+4. **Monitor your quota**: Check RapidAPI dashboard regularly
+5. **Adjust frequency**: Start with 8-12 hour intervals
+
+### Filter Examples
+
+**Remote Python Developer**:
+```json
+{
+  "name": "Python Remote",
+  "keywords": ["Python Developer", "Backend Engineer"],
+  "location": "United States",
+  "remote_only": true,
+  "is_active": true
+}
+```
+
+**Senior Frontend - New York**:
+```json
+{
+  "name": "Senior Frontend NYC",
+  "keywords": ["Frontend Engineer", "React Developer"],
+  "location": "New York, NY",
+  "experience_level": "senior",
+  "job_type": "full-time",
+  "is_active": true
+}
+```
+
+**Entry Level Data Analyst**:
+```json
+{
+  "name": "Entry Data Analyst",
+  "keywords": ["Data Analyst", "Business Analyst"],
+  "location": "Remote",
+  "experience_level": "entry",
+  "remote_only": true,
+  "is_active": true
+}
+```
+
+## 📝 Important Notes
+
+### LinkedIn-Only Configuration
+
+By default, the system is configured to **only search LinkedIn** for jobs. This provides the most reliable results.
+
+To enable other job boards (Indeed, Glassdoor), see `app/services/jsearch_service.py` and modify the `google_domain` parameter.
+
+### API Rate Limits
+
+**Free Tier**: 150 requests/month (~5 per day)
+- Each search filter = 1 request per fetch cycle
+- Default: 3 filters × 3 fetches/day = 9 requests/day ⚠️ Too much!
+- Recommended: 1-2 filters with `FETCH_INTERVAL_MINUTES=480` (8 hours)
+
+**Monitor usage**: https://rapidapi.com/developer/dashboard
+
+## 🗺️ Development Roadmap
+
+- [x] **Phase 1**: Setup & Core Infrastructure
+- [x] **Phase 2**: CV Management
+- [x] **Phase 3**: Job Fetching (JSearch API - LinkedIn integration)
+- [ ] **Phase 4**: AI Matching with Claude (Coming Soon)
+- [x] **Phase 5**: Scheduling & Automation (Basic setup complete)
+- [ ] **Phase 6**: Email Notifications (Coming Soon)
+- [ ] **Phase 7**: Testing & Documentation
+- [ ] **Phase 8**: Deployment
+
+## 📂 Project Structure
 
 ```
 job_matcher/
@@ -302,21 +614,48 @@ job_matcher/
 │   ├── schemas.py           # Pydantic schemas
 │   ├── celery_worker.py     # Celery tasks
 │   ├── routers/             # API endpoints
+│   │   ├── cv.py           # CV management
+│   │   ├── jobs.py         # Job endpoints
+│   │   ├── filters.py      # Filter management
+│   │   ├── scheduler.py    # Scheduler control
+│   │   └── system.py       # System health
 │   ├── services/            # Business logic
+│   │   ├── cv_service.py
+│   │   ├── job_service.py
+│   │   ├── jsearch_service.py
+│   │   ├── filter_service.py
+│   │   └── scheduler_service.py
 │   └── utils/               # Utility functions
+│       └── file_parser.py
 ├── storage/
 │   ├── cvs/                 # Uploaded CV files
 │   └── temp/                # Temporary files
 ├── docker-compose.yml       # Docker services configuration
 ├── Dockerfile               # Application container
 ├── pyproject.toml           # Python dependencies
+├── .env                     # Environment variables (create this)
 └── README.md                # This file
 ```
 
-## Contributing
+## 💾 Database Schema
+
+The application uses PostgreSQL with the following main tables:
+- `cvs` - CV storage with parsed content
+- `jobs` - Job postings with match scores
+- `search_filters` - Job search criteria
+- `scheduler_config` - Scheduler settings
+- `notification_logs` - Email notification history
+
+## 🤝 Contributing
 
 This is a personal project, but suggestions and improvements are welcome!
 
-## License
+## 📄 License
 
 MIT License
+
+---
+
+**Last Updated**: November 2025  
+**Version**: Phase 3 Complete
+

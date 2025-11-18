@@ -40,6 +40,8 @@ def fetch_and_analyze_jobs():
     from app.services.cv_service import CVService
     from app.services.filter_service import FilterService
     from app.services.job_service import JobService
+    from app.services.jsearch_service import JSearchService
+    import asyncio
 
     db = SessionLocal()
 
@@ -60,16 +62,83 @@ def fetch_and_analyze_jobs():
             print("No active search filters found. Skipping job fetch.")
             return {"status": "skipped", "reason": "no_active_filters"}
 
-        # TODO: Implement job fetching logic
-        # For now, return a placeholder
-        print(f"Would fetch jobs for {len(filters)} filters")
+        # Initialize services
+        job_service = JobService(db)
+        jsearch_service = JSearchService()
+
+        jobs_fetched = 0
+        jobs_created = 0
+        jobs_duplicate = 0
+
+        print(f"Starting job fetch for {len(filters)} active filters...")
+
+        # Fetch jobs for each filter
+        for search_filter in filters:
+            filter_dict = {
+                "keywords": search_filter.keywords,
+                "location": search_filter.location,
+                "job_type": search_filter.job_type,
+                "experience_level": search_filter.experience_level,
+                "remote": search_filter.remote,
+            }
+
+            print(f"Fetching jobs for filter: {search_filter.name}")
+
+            # Fetch jobs asynchronously
+            try:
+                jobs = asyncio.run(
+                    jsearch_service.fetch_jobs_by_filter(
+                        filter_dict,
+                        max_pages=settings.search_max_pages
+                    )
+                )
+
+                jobs_fetched += len(jobs)
+                print(f"  Found {len(jobs)} jobs")
+
+                # Save jobs to database
+                for job_data in jobs:
+                    # Check if job already exists
+                    existing_job = job_service.get_job_by_external_id(
+                        job_data["external_job_id"]
+                    )
+
+                    if existing_job:
+                        jobs_duplicate += 1
+                        continue
+
+                    # Add CV ID to job data
+                    job_data["cv_id"] = active_cv.id
+
+                    # Create job in database
+                    new_job = job_service.create_job(job_data)
+                    jobs_created += 1
+
+                    print(f"  Created job: {new_job.title} at {new_job.company}")
+
+                    # Trigger async analysis of this job against CV
+                    analyze_job.delay(new_job.id)
+
+            except Exception as e:
+                print(f"Error fetching jobs for filter {search_filter.name}: {str(e)}")
+                continue
+
+        print(f"Job fetch completed: {jobs_fetched} fetched, {jobs_created} new, {jobs_duplicate} duplicates")
 
         return {
             "status": "success",
             "cv_id": active_cv.id,
             "filters_count": len(filters),
-            "jobs_fetched": 0,
-            "jobs_analyzed": 0,
+            "jobs_fetched": jobs_fetched,
+            "jobs_created": jobs_created,
+            "jobs_duplicate": jobs_duplicate,
+        }
+
+    except Exception as e:
+        print(f"Error in fetch_and_analyze_jobs: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
         }
 
     finally:
@@ -80,15 +149,103 @@ def fetch_and_analyze_jobs():
 def analyze_job(job_id: int):
     """
     Analyze a single job against the active CV
+    Compares job requirements with CV content and calculates compatibility
     """
     from app.database import SessionLocal
+    from app.services.job_service import JobService
+    from app.services.cv_service import CVService
+    from app.models import JobScore
+    import re
 
     db = SessionLocal()
 
     try:
-        # TODO: Implement job analysis logic using AI
-        print(f"Analyzing job {job_id}")
-        return {"status": "success", "job_id": job_id}
+        job_service = JobService(db)
+        cv_service = CVService(db)
+
+        # Get the job
+        job = job_service.get_job(job_id)
+        if not job:
+            print(f"Job {job_id} not found")
+            return {"status": "error", "reason": "job_not_found"}
+
+        # Get the CV
+        cv = cv_service.get_cv(job.cv_id) if job.cv_id else None
+        if not cv:
+            print(f"CV not found for job {job_id}")
+            return {"status": "error", "reason": "cv_not_found"}
+
+        print(f"Analyzing job {job_id}: {job.title} at {job.company}")
+
+        # Combine job text for analysis
+        job_text = f"{job.title} {job.description or ''} {job.requirements or ''}".lower()
+        cv_text = cv.content.lower()
+
+        # Extract keywords from job (simple implementation)
+        # TODO: Replace with AI-based analysis using Anthropic API
+        job_keywords = set(re.findall(r'\b[a-z]{3,}\b', job_text))
+        cv_keywords = set(re.findall(r'\b[a-z]{3,}\b', cv_text))
+
+        # Common tech skills and keywords to look for
+        important_keywords = {
+            'python', 'java', 'javascript', 'typescript', 'react', 'angular', 'vue',
+            'node', 'django', 'flask', 'fastapi', 'spring', 'docker', 'kubernetes',
+            'aws', 'azure', 'gcp', 'sql', 'postgresql', 'mongodb', 'redis',
+            'git', 'cicd', 'devops', 'machine', 'learning', 'data', 'engineer',
+            'backend', 'frontend', 'fullstack', 'api', 'rest', 'graphql',
+            'agile', 'scrum', 'testing', 'security', 'cloud', 'microservices'
+        }
+
+        # Find matching keywords
+        job_important = job_keywords & important_keywords
+        cv_important = cv_keywords & important_keywords
+        matching_keywords = job_important & cv_important
+        missing_keywords = job_important - cv_important
+
+        # Calculate compatibility percentage
+        if len(job_important) > 0:
+            compatibility = int((len(matching_keywords) / len(job_important)) * 100)
+        else:
+            compatibility = 50  # Default if no important keywords found
+
+        # Determine score based on compatibility
+        if compatibility >= 70:
+            score = JobScore.HIGH
+        elif compatibility >= 40:
+            score = JobScore.MEDIUM
+        else:
+            score = JobScore.LOW
+
+        # Format missing requirements
+        missing_requirements = list(missing_keywords)[:10]  # Limit to top 10
+
+        print(f"  Compatibility: {compatibility}% | Score: {score.value} | Missing: {len(missing_requirements)}")
+
+        # Update job with analysis results
+        job_service.update_job_analysis(
+            job_id=job_id,
+            score=score,
+            compatibility_percentage=compatibility,
+            missing_requirements=missing_requirements,
+            suggested_summary=None,  # TODO: Implement with AI
+            needs_summary_change=len(missing_requirements) > 0
+        )
+
+        return {
+            "status": "success",
+            "job_id": job_id,
+            "score": score.value,
+            "compatibility": compatibility,
+            "missing_count": len(missing_requirements)
+        }
+
+    except Exception as e:
+        print(f"Error analyzing job {job_id}: {str(e)}")
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "error": str(e)
+        }
 
     finally:
         db.close()
