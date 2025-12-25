@@ -84,7 +84,8 @@ class JobService:
         compatibility_percentage: int,
         missing_requirements: List[str],
         suggested_summary: Optional[str],
-        needs_summary_change: bool
+        needs_summary_change: bool,
+        must_notify: bool = False
     ) -> Optional[Job]:
         """Update job with analysis results"""
         job = self.get_job(job_id)
@@ -94,6 +95,7 @@ class JobService:
             job.missing_requirements = missing_requirements
             job.suggested_summary = suggested_summary
             job.needs_summary_change = needs_summary_change
+            job.must_notify = must_notify
             job.status = JobStatus.ANALYZED
             job.analyzed_at = datetime.utcnow()
             self.db.commit()

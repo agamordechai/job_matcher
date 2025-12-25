@@ -6,10 +6,10 @@ An intelligent job matching system that automatically fetches job postings from 
 
 - **CV Management**: Upload and manage your CV (PDF/DOCX format)
 - **Job Fetching**: Automated job fetching from LinkedIn via JSearch API (can also search Indeed, Glassdoor)
-- **AI Matching**: Smart job matching using Claude AI (Phase 4 - Coming Soon)
+- **AI Matching**: Smart job matching using Claude AI with intelligent fallback to keyword matching
 - **Filtering**: Customizable search filters (keywords, location, job type, experience level)
 - **Scheduling**: Automated job fetching with configurable intervals (default: every 8 hours)
-- **Email Notifications**: Get notified about high-match jobs (Phase 6 - Coming Soon)
+- **Email Notifications**: Get notified about high-match jobs via email
 - **Deduplication**: Automatic duplicate job detection
 - **Rich Data**: Full job details including salary, requirements, description, and direct application links
 

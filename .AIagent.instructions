@@ -1,0 +1,20 @@
+# Copilot Instructions for This Project
+
+## General Rules
+- Dont use emojis
+
+## File Creation Rules
+- **NEVER create MD files** unless explicitly requested
+- You can show Ghost MD files
+- you may use as much scripts as you want, just make sure to delete them after use
+- Write google style docstrings for every function you create
+- Add type hints to every function you create
+
+## Response Rules
+- Keep responses concise
+
+## Verification Required
+Before mentioning any file:
+1. Check if it actually exists
+2. Read its actual content
+3. Don't reference deleted/non-existent files

@@ -81,6 +81,7 @@ class Job(Base):
     missing_requirements = Column(JSON, nullable=True)  # List of missing skills/requirements
     suggested_summary = Column(Text, nullable=True)
     needs_summary_change = Column(Boolean, default=False)
+    must_notify = Column(Boolean, default=False)  # Flag for jobs matching must-notify keywords
 
     # Status tracking
     status = Column(Enum(JobStatus), default=JobStatus.PENDING, index=True)

@@ -1,12 +1,14 @@
 """Job management endpoints"""
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.schemas import JobResponse, JobListResponse, JobNotifiedUpdate
 from app.models import JobScore, JobStatus, Job
 from app.services.job_service import JobService
+from app.services.cv_service import CVService
+from app.services.ai_matching_service import AIMatchingService
 
 router = APIRouter()
 
@@ -159,5 +161,216 @@ async def get_top_matches(
     ).count()
 
     return JobListResponse(total=total, jobs=jobs)
+
+
+@router.post("/{job_id}/analyze", response_model=Dict[str, Any])
+async def analyze_job(
+    job_id: int,
+    force: bool = Query(False, description="Force re-analysis even if already analyzed"),
+    db: Session = Depends(get_db)
+):
+    """
+    Analyze a job against the active CV using AI.
+
+    Uses Claude AI for intelligent matching with fallback to keyword matching.
+    Set force=true to re-analyze a previously analyzed job.
+    """
+    job_service = JobService(db)
+    cv_service = CVService(db)
+    ai_service = AIMatchingService()
+
+    # Get the job
+    job = job_service.get_job(job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found"
+        )
+
+    # Check if already analyzed
+    if job.analyzed_at and not force:
+        return {
+            "status": "skipped",
+            "reason": "already_analyzed",
+            "job_id": job_id,
+            "analyzed_at": job.analyzed_at.isoformat(),
+            "score": job.score.value if job.score else None,
+            "compatibility": job.compatibility_percentage,
+            "hint": "Use ?force=true to re-analyze"
+        }
+
+    # Get active CV
+    cv = cv_service.get_active_cv()
+    if not cv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active CV found. Please upload a CV first."
+        )
+
+    # Perform AI analysis
+    analysis = ai_service.analyze_job_match(
+        cv_content=cv.content,
+        cv_summary=cv.summary,
+        job_title=job.title,
+        job_company=job.company,
+        job_description=job.description or "",
+        job_requirements=job.requirements,
+        job_location=job.location
+    )
+
+    # Map score
+    score_map = {
+        "high": JobScore.HIGH,
+        "medium": JobScore.MEDIUM,
+        "low": JobScore.LOW
+    }
+    score = score_map.get(analysis["score"], JobScore.MEDIUM)
+
+    # Update job
+    job_service.update_job_analysis(
+        job_id=job_id,
+        score=score,
+        compatibility_percentage=analysis["compatibility_percentage"],
+        missing_requirements=analysis["missing_requirements"],
+        suggested_summary=analysis.get("suggested_summary"),
+        needs_summary_change=analysis.get("needs_summary_change", False),
+        must_notify=analysis.get("must_notify", False)
+    )
+
+    return {
+        "status": "success",
+        "job_id": job_id,
+        "ai_powered": ai_service.is_configured(),
+        "score": analysis["score"],
+        "compatibility_percentage": analysis["compatibility_percentage"],
+        "matching_skills": analysis.get("matching_skills", []),
+        "missing_requirements": analysis["missing_requirements"],
+        "needs_summary_change": analysis.get("needs_summary_change", False),
+        "suggested_summary": analysis.get("suggested_summary"),
+        "analysis_reasoning": analysis.get("analysis_reasoning", "")
+    }
+
+
+@router.post("/analyze/batch", response_model=Dict[str, Any])
+async def analyze_jobs_batch(
+    job_ids: List[int] = Query(None, description="Specific job IDs to analyze"),
+    pending_only: bool = Query(True, description="Only analyze pending jobs"),
+    limit: int = Query(10, ge=1, le=50, description="Max jobs to analyze"),
+    db: Session = Depends(get_db)
+):
+    """
+    Batch analyze multiple jobs against the active CV.
+
+    If job_ids provided, analyzes those specific jobs.
+    Otherwise, analyzes pending jobs up to the limit.
+    """
+    job_service = JobService(db)
+    cv_service = CVService(db)
+    ai_service = AIMatchingService()
+
+    # Get active CV
+    cv = cv_service.get_active_cv()
+    if not cv:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active CV found. Please upload a CV first."
+        )
+
+    # Get jobs to analyze
+    if job_ids:
+        jobs = [job_service.get_job(jid) for jid in job_ids]
+        jobs = [j for j in jobs if j is not None]
+    else:
+        # Get pending jobs
+        query = db.query(Job)
+        if pending_only:
+            query = query.filter(Job.score == JobScore.PENDING)
+        jobs = query.order_by(Job.fetched_at.desc()).limit(limit).all()
+
+    if not jobs:
+        return {
+            "status": "skipped",
+            "reason": "no_jobs_to_analyze",
+            "analyzed_count": 0
+        }
+
+    # Analyze each job
+    results = []
+    for job in jobs:
+        try:
+            analysis = ai_service.analyze_job_match(
+                cv_content=cv.content,
+                cv_summary=cv.summary,
+                job_title=job.title,
+                job_company=job.company,
+                job_description=job.description or "",
+                job_requirements=job.requirements,
+                job_location=job.location
+            )
+
+            score_map = {"high": JobScore.HIGH, "medium": JobScore.MEDIUM, "low": JobScore.LOW}
+            score = score_map.get(analysis["score"], JobScore.MEDIUM)
+
+            job_service.update_job_analysis(
+                job_id=job.id,
+                score=score,
+                compatibility_percentage=analysis["compatibility_percentage"],
+                missing_requirements=analysis["missing_requirements"],
+                suggested_summary=analysis.get("suggested_summary"),
+                needs_summary_change=analysis.get("needs_summary_change", False),
+                must_notify=analysis.get("must_notify", False)
+            )
+
+            results.append({
+                "job_id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "status": "success",
+                "score": analysis["score"],
+                "compatibility": analysis["compatibility_percentage"]
+            })
+        except Exception as e:
+            results.append({
+                "job_id": job.id,
+                "title": job.title,
+                "status": "error",
+                "error": str(e)
+            })
+
+    successful = [r for r in results if r["status"] == "success"]
+    failed = [r for r in results if r["status"] == "error"]
+
+    return {
+        "status": "completed",
+        "ai_powered": ai_service.is_configured(),
+        "total_jobs": len(jobs),
+        "analyzed_count": len(successful),
+        "failed_count": len(failed),
+        "results": results
+    }
+
+
+@router.get("/ai/status", response_model=Dict[str, Any])
+async def get_ai_status():
+    """
+    Check if AI matching is properly configured.
+
+    Returns configuration status and capabilities.
+    """
+    ai_service = AIMatchingService()
+
+    return {
+        "ai_configured": ai_service.is_configured(),
+        "model": ai_service.model if ai_service.is_configured() else None,
+        "capabilities": {
+            "job_matching": True,
+            "compatibility_scoring": True,
+            "missing_requirements_detection": True,
+            "summary_generation": ai_service.is_configured(),
+            "analysis_reasoning": ai_service.is_configured()
+        },
+        "fallback_available": True,
+        "fallback_method": "keyword_matching"
+    }
 
 

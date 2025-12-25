@@ -1,6 +1,7 @@
 """Application configuration settings"""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
+from typing import List
 
 
 class Settings(BaseSettings):
@@ -44,6 +45,19 @@ class Settings(BaseSettings):
     search_date_posted: str = "month"
     search_max_pages: int = 2
 
+    # Job Title Pre-Filtering (to reduce AI API calls)
+    # Jobs with titles containing these keywords will be auto-rejected (LOW score) without AI
+    # Comma-separated list, case-insensitive
+    job_title_exclude_keywords: str = "senior,sr.,experienced,architect,staff,team lead,manager,lead,principal,director,vp,head of,chief"
+    # Jobs with titles containing these keywords will be auto-accepted for AI analysis
+    # Leave empty to analyze all non-excluded jobs
+    job_title_include_keywords: str = ""
+    # Jobs containing these keywords will always trigger notification regardless of match score
+    # Comma-separated list, case-insensitive
+    job_title_must_notify_keywords: str = "junior,entry-level,entry level,intern,graduate"
+    # Enable/disable pre-filtering (set to false to always use AI)
+    job_prefilter_enabled: bool = True
+
     # Storage
     storage_path: str = "./storage"
     cv_storage_path: str = "./storage/cvs"
@@ -52,11 +66,29 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         case_sensitive=False,
+        extra="ignore"
     )
+
+    def get_exclude_keywords(self) -> List[str]:
+        """Parse exclude keywords into a list"""
+        if not self.job_title_exclude_keywords:
+            return []
+        return [k.strip().lower() for k in self.job_title_exclude_keywords.split(",") if k.strip()]
+
+    def get_include_keywords(self) -> List[str]:
+        """Parse include keywords into a list"""
+        if not self.job_title_include_keywords:
+            return []
+        return [k.strip().lower() for k in self.job_title_include_keywords.split(",") if k.strip()]
+
+    def get_must_notify_keywords(self) -> List[str]:
+        """Parse must-notify keywords into a list"""
+        if not self.job_title_must_notify_keywords:
+            return []
+        return [k.strip().lower() for k in self.job_title_must_notify_keywords.split(",") if k.strip()]
 
 
 @lru_cache
 def get_settings() -> Settings:
     """Get cached settings instance"""
     return Settings()
-

@@ -1,5 +1,5 @@
 """Celery worker for background tasks"""
-from celery import Celery
+from celery import Celery, chord, group
 from celery.schedules import crontab
 from app.config import get_settings
 
@@ -94,6 +94,7 @@ def fetch_and_analyze_jobs():
         jobs_fetched = 0
         jobs_created = 0
         jobs_duplicate = 0
+        new_job_ids = []  # Track new job IDs for batch analysis
 
         print(f"Starting job fetch for {len(filters)} active filters...")
 
@@ -138,11 +139,9 @@ def fetch_and_analyze_jobs():
                     # Create job in database
                     new_job = job_service.create_job(job_data)
                     jobs_created += 1
+                    new_job_ids.append(new_job.id)
 
                     print(f"  Created job: {new_job.title} at {new_job.company}")
-
-                    # Trigger async analysis of this job against CV
-                    analyze_job.delay(new_job.id)
 
             except Exception as e:
                 print(f"Error fetching jobs for filter {search_filter.name}: {str(e)}")
@@ -150,9 +149,15 @@ def fetch_and_analyze_jobs():
 
         print(f"Job fetch completed: {jobs_fetched} fetched, {jobs_created} new, {jobs_duplicate} duplicates")
 
-        # Send batch email notification if new jobs were created
-        if jobs_created > 0:
-            send_batch_job_notification.delay()
+        # Analyze all new jobs and send email when ALL analyses complete
+        if new_job_ids:
+            print(f"Starting batch analysis of {len(new_job_ids)} jobs...")
+
+            # Use Celery chord: run all analyses in parallel, then trigger email when all complete
+            analyze_tasks = [analyze_job.s(job_id) for job_id in new_job_ids]
+            chord(analyze_tasks)(send_batch_job_notification.s())
+
+            print(f"✅ Batch analysis queued. Email will be sent after all {len(new_job_ids)} jobs are analyzed.")
 
         return {
             "status": "success",
@@ -177,20 +182,21 @@ def fetch_and_analyze_jobs():
 @celery_app.task(name="app.celery_worker.analyze_job")
 def analyze_job(job_id: int):
     """
-    Analyze a single job against the active CV
-    Compares job requirements with CV content and calculates compatibility
+    Analyze a single job against the active CV using AI.
+    Uses AI API for intelligent matching, with fallback to keyword matching.
     """
     from app.database import SessionLocal
     from app.services.job_service import JobService
     from app.services.cv_service import CVService
+    from app.services.ai_matching_service import AIMatchingService
     from app.models import JobScore
-    import re
 
     db = SessionLocal()
 
     try:
         job_service = JobService(db)
         cv_service = CVService(db)
+        ai_service = AIMatchingService()
 
         # Get the job
         job = job_service.get_job(job_id)
@@ -206,49 +212,42 @@ def analyze_job(job_id: int):
 
         print(f"Analyzing job {job_id}: {job.title} at {job.company}")
 
-        # Combine job text for analysis
-        job_text = f"{job.title} {job.description or ''} {job.requirements or ''}".lower()
-        cv_text = cv.content.lower()
+        # Check if AI is configured
+        if ai_service.is_configured():
+            print(f"  Using Claude AI for analysis...")
+        else:
+            print(f"  Using fallback keyword matching (AI not configured)...")
 
-        # Extract keywords from job (simple implementation)
-        # TODO: Replace with AI-based analysis using Anthropic API
-        job_keywords = set(re.findall(r'\b[a-z]{3,}\b', job_text))
-        cv_keywords = set(re.findall(r'\b[a-z]{3,}\b', cv_text))
+        # Perform AI-powered analysis
+        analysis = ai_service.analyze_job_match(
+            cv_content=cv.content,
+            cv_summary=cv.summary,
+            job_title=job.title,
+            job_company=job.company,
+            job_description=job.description or "",
+            job_requirements=job.requirements,
+            job_location=job.location
+        )
 
-        # Common tech skills and keywords to look for
-        important_keywords = {
-            'python', 'java', 'javascript', 'typescript', 'react', 'angular', 'vue',
-            'node', 'django', 'flask', 'fastapi', 'spring', 'docker', 'kubernetes',
-            'aws', 'azure', 'gcp', 'sql', 'postgresql', 'mongodb', 'redis',
-            'git', 'cicd', 'devops', 'machine', 'learning', 'data', 'engineer',
-            'backend', 'frontend', 'fullstack', 'api', 'rest', 'graphql',
-            'agile', 'scrum', 'testing', 'security', 'cloud', 'microservices'
+        # Map score string to enum
+        score_map = {
+            "high": JobScore.HIGH,
+            "medium": JobScore.MEDIUM,
+            "low": JobScore.LOW
         }
+        score = score_map.get(analysis["score"], JobScore.MEDIUM)
+        compatibility = analysis["compatibility_percentage"]
+        missing_requirements = analysis["missing_requirements"]
+        suggested_summary = analysis.get("suggested_summary")
+        needs_summary_change = analysis.get("needs_summary_change", False)
+        must_notify = analysis.get("must_notify", False)
 
-        # Find matching keywords
-        job_important = job_keywords & important_keywords
-        cv_important = cv_keywords & important_keywords
-        matching_keywords = job_important & cv_important
-        missing_keywords = job_important - cv_important
-
-        # Calculate compatibility percentage
-        if len(job_important) > 0:
-            compatibility = int((len(matching_keywords) / len(job_important)) * 100)
-        else:
-            compatibility = 50  # Default if no important keywords found
-
-        # Determine score based on compatibility
-        if compatibility >= 70:
-            score = JobScore.HIGH
-        elif compatibility >= 40:
-            score = JobScore.MEDIUM
-        else:
-            score = JobScore.LOW
-
-        # Format missing requirements
-        missing_requirements = list(missing_keywords)[:10]  # Limit to top 10
-
-        print(f"  Compatibility: {compatibility}% | Score: {score.value} | Missing: {len(missing_requirements)}")
+        print(f"  Compatibility: {compatibility}% | Score: {score.value}")
+        print(f"  Missing: {len(missing_requirements)} requirements")
+        if analysis.get("analysis_reasoning"):
+            print(f"  Reasoning: {analysis['analysis_reasoning']}")
+        if must_notify:
+            print(f"  🔔 Must Notify: {analysis.get('must_notify_keyword', 'yes')}")
 
         # Update job with analysis results
         job_service.update_job_analysis(
@@ -256,8 +255,9 @@ def analyze_job(job_id: int):
             score=score,
             compatibility_percentage=compatibility,
             missing_requirements=missing_requirements,
-            suggested_summary=None,  # TODO: Implement with AI
-            needs_summary_change=len(missing_requirements) > 0
+            suggested_summary=suggested_summary,
+            needs_summary_change=needs_summary_change,
+            must_notify=must_notify
         )
 
         return {
@@ -265,7 +265,9 @@ def analyze_job(job_id: int):
             "job_id": job_id,
             "score": score.value,
             "compatibility": compatibility,
-            "missing_count": len(missing_requirements)
+            "missing_count": len(missing_requirements),
+            "ai_powered": ai_service.is_configured(),
+            "reasoning": analysis.get("analysis_reasoning", "")
         }
 
     except Exception as e:
@@ -281,15 +283,19 @@ def analyze_job(job_id: int):
 
 
 @celery_app.task(name="app.celery_worker.send_batch_job_notification")
-def send_batch_job_notification():
+def send_batch_job_notification(analysis_results=None):
     """
-    Send batch email notification for recently fetched jobs
-    Sends email with list of new jobs (not yet notified)
+    Send batch email notification after ALL job analyses are complete.
+    This is triggered as a callback after chord completes.
+
+    Args:
+        analysis_results: List of results from analyze_job tasks (from chord)
     """
     from app.database import SessionLocal
     from app.services.email_service import EmailService
     from app.services.job_service import JobService
-    from app.models import JobStatus
+    from app.models import JobStatus, JobScore, Job
+    from datetime import datetime
 
     db = SessionLocal()
 
@@ -297,35 +303,37 @@ def send_batch_job_notification():
         job_service = JobService(db)
         email_service = EmailService(db)
 
-        # Get jobs that haven't been notified yet (recently created)
-        # We'll notify about jobs with PENDING or ANALYZED status that haven't been notified
+        # Get jobs that haven't been notified yet AND are analyzed
+        # Include jobs that either have HIGH score OR have must_notify flag set
         jobs = db.query(Job).filter(
             Job.notified_at.is_(None),
-            Job.status.in_([JobStatus.PENDING, JobStatus.ANALYZED])
+            Job.status == JobStatus.ANALYZED,  # Only analyzed jobs
+            ((Job.score == JobScore.HIGH) | (Job.must_notify == True))  # HIGH or must-notify
         ).order_by(Job.fetched_at.desc()).limit(50).all()  # Limit to 50 most recent
 
         if not jobs:
-            print("No new jobs to notify about")
-            return {"status": "skipped", "reason": "no_jobs"}
+            print("No new HIGH/must-notify jobs to notify about")
+            return {"status": "skipped", "reason": "no_qualifying_jobs"}
 
-        print(f"Sending batch notification for {len(jobs)} jobs")
+        print(f"📧 Sending batch notification for {len(jobs)} jobs (HIGH scores or must-notify)")
 
         # Send batch notification
         result = email_service.send_batch_notification(jobs)
 
         # Mark jobs as notified if email was sent successfully
         if result.get("status") == "success":
-            from datetime import datetime
             for job in jobs:
                 job.notified_at = datetime.utcnow()
                 job.status = JobStatus.NOTIFIED
             db.commit()
-            print(f"Marked {len(jobs)} jobs as notified")
+            print(f"✅ Marked {len(jobs)} jobs as notified")
 
         return result
 
     except Exception as e:
-        print(f"Error in send_batch_job_notification: {str(e)}")
+        print(f"❌ Error in send_batch_job_notification: {str(e)}")
+        import traceback
+        traceback.print_exc()
         db.rollback()
         return {
             "status": "error",
