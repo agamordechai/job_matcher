@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.models import CV, Job, SearchFilter, JobScore, JobStatus
 from app.database import Base
+from app.schemas import JobAnalysisResult
 
 
 # Create a test FastAPI app
@@ -403,15 +404,15 @@ class TestJobAnalysisRouter:
         with patch('app.routers.jobs.AIMatchingService') as mock_ai:
             mock_instance = MagicMock()
             mock_instance.is_configured.return_value = True
-            mock_instance.analyze_job_match.return_value = {
-                "score": "high",
-                "compatibility_percentage": 85,
-                "matching_skills": ["python", "fastapi"],
-                "missing_requirements": [],
-                "needs_summary_change": False,
-                "suggested_summary": None,
-                "analysis_reasoning": "Good match"
-            }
+            mock_instance.analyze_job_match.return_value = JobAnalysisResult(
+                score="high",
+                compatibility_percentage=85,
+                matching_skills=["python", "fastapi"],
+                missing_requirements=[],
+                needs_summary_change=False,
+                suggested_summary=None,
+                analysis_reasoning="Good match"
+            )
             mock_ai.return_value = mock_instance
 
             response = client.post(f"/api/jobs/{sample_job.id}/analyze")
@@ -460,14 +461,15 @@ class TestJobAnalysisRouter:
         with patch('app.routers.jobs.AIMatchingService') as mock_ai:
             mock_instance = MagicMock()
             mock_instance.is_configured.return_value = True
-            mock_instance.analyze_job_match.return_value = {
-                "score": "high",
-                "compatibility_percentage": 85,
-                "matching_skills": ["python"],
-                "missing_requirements": [],
-                "needs_summary_change": False,
-                "analysis_reasoning": "Good match"
-            }
+            mock_instance.analyze_job_match.return_value = JobAnalysisResult(
+                score="high",
+                compatibility_percentage=85,
+                matching_skills=["python"],
+                missing_requirements=[],
+                needs_summary_change=False,
+                suggested_summary=None,
+                analysis_reasoning="Good match"
+            )
             mock_ai.return_value = mock_instance
 
             response = client.post("/api/jobs/analyze/batch")
