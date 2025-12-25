@@ -148,7 +148,6 @@ async def get_top_matches(
     Returns high-scoring jobs sorted by compatibility percentage
     """
     jobs = db.query(Job).filter(
-        Job.score == JobScore.HIGH,
         Job.compatibility_percentage >= min_compatibility
     ).order_by(
         Job.compatibility_percentage.desc(),
@@ -156,7 +155,6 @@ async def get_top_matches(
     ).limit(limit).all()
 
     total = db.query(Job).filter(
-        Job.score == JobScore.HIGH,
         Job.compatibility_percentage >= min_compatibility
     ).count()
 
@@ -372,5 +370,3 @@ async def get_ai_status():
         "fallback_available": True,
         "fallback_method": "keyword_matching"
     }
-
-
