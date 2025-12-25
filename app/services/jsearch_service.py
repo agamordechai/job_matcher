@@ -2,7 +2,9 @@
 import httpx
 from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
+from pydantic import ValidationError
 from app.config import get_settings
+from app.schemas import JSearchAPIResponse, JSearchJobResponse, ParsedJobData
 
 settings = get_settings()
 
@@ -33,7 +35,7 @@ class JSearchService:
         page: int = 1,
         num_pages: int = 1,
         date_posted: str = "all",
-    ) -> Dict[str, Any]:
+    ) -> JSearchAPIResponse:
         """
         Search for jobs using JSearch API
 
@@ -84,7 +86,13 @@ class JSearchService:
                     params=params,
                 )
                 response.raise_for_status()
-                return response.json()
+                raw_data = response.json()
+                # Validate response with Pydantic
+                return JSearchAPIResponse.model_validate(raw_data)
+        except ValidationError as e:
+            print(f"API response validation error: {e}")
+            # Return empty response on validation error
+            return JSearchAPIResponse(status="error", data=[])
         except httpx.HTTPStatusError as e:
             print(f"HTTP error occurred: {e.response.status_code} - {e.response.text}")
             raise
@@ -95,15 +103,15 @@ class JSearchService:
             print(f"Unexpected error: {str(e)}")
             raise
 
-    def parse_job_data(self, job_data: Dict[str, Any]) -> Dict[str, Any]:
+    def parse_job_data(self, job_data: Dict[str, Any]) -> ParsedJobData:
         """
         Parse JSearch job data into our internal format
 
         Args:
-            job_data: Raw job data from JSearch API
+            job_data: Raw job data from JSearch API (or JSearchJobResponse)
 
         Returns:
-            Dict containing parsed job data ready for database insertion
+            ParsedJobData model ready for database insertion
         """
         # Extract job details
         job_id = job_data.get("job_id", "")
@@ -185,26 +193,26 @@ class JSearchService:
             except:
                 pass
 
-        return {
-            "external_job_id": job_id,
-            "title": title,
-            "company": company,
-            "location": location or None,
-            "job_type": job_type,
-            "experience_level": experience_level,
-            "description": description,
-            "requirements": requirements,
-            "url": url,
-            "salary_range": salary_range,
-            "posted_at": posted_at,
-            "fetched_at": datetime.now(timezone.utc),
-        }
+        return ParsedJobData(
+            external_job_id=job_id,
+            title=title,
+            company=company,
+            location=location or None,
+            job_type=job_type,
+            experience_level=experience_level,
+            description=description,
+            requirements=requirements,
+            url=url,
+            salary_range=salary_range,
+            posted_at=posted_at,
+            fetched_at=datetime.now(timezone.utc),
+        )
 
     async def fetch_jobs_by_filter(
         self,
         filter_config: Dict[str, Any],
         max_pages: int = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ParsedJobData]:
         """
         Fetch jobs based on a search filter configuration
 
@@ -260,7 +268,7 @@ class JSearchService:
 
         # Search jobs
         try:
-            results = await self.search_jobs(
+            api_response = await self.search_jobs(
                 query=query,
                 location=location,
                 remote_jobs_only=remote,
@@ -270,9 +278,11 @@ class JSearchService:
                 date_posted=settings.search_date_posted,  # Use configurable date range
             )
 
-            # Parse results
-            jobs = results.get("data", [])
-            parsed_jobs = [self.parse_job_data(job) for job in jobs]
+            # Parse results - api_response is now a JSearchAPIResponse model
+            parsed_jobs = [
+                self.parse_job_data(job.model_dump())
+                for job in api_response.data
+            ]
 
             return parsed_jobs
 

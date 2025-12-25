@@ -4,6 +4,7 @@ import re
 from typing import Optional, Dict, Any, List, Tuple
 import anthropic
 from app.config import get_settings
+from app.schemas import JobAnalysisResult, CVSkillsProfile, FilterConfigResponse
 
 settings = get_settings()
 
@@ -71,7 +72,7 @@ class AIMatchingService:
                 return True, keyword
         return False, None
 
-    def extract_cv_skills(self, cv_content: str) -> Dict[str, Any]:
+    def extract_cv_skills(self, cv_content: str) -> CVSkillsProfile:
         """
         Extract key skills from CV for smart truncation.
         Caches results to avoid re-extraction.
@@ -98,12 +99,12 @@ class AIMatchingService:
                           cv_content, re.IGNORECASE)
         recent_roles = roles[:3] if roles else []
 
-        result = {
-            "skills": found_skills,
-            "years_experience": years_experience,
-            "recent_roles": recent_roles,
-            "skill_count": len(found_skills)
-        }
+        result = CVSkillsProfile(
+            skills=found_skills,
+            years_experience=years_experience,
+            recent_roles=recent_roles,
+            skill_count=len(found_skills)
+        )
 
         # Cache result
         self._cv_skills_cache[cv_hash] = result
@@ -145,7 +146,7 @@ class AIMatchingService:
 
         return None  # Experience level not specified
 
-    def check_experience_match(self, cv_skills: Dict[str, Any], job_level: Optional[str]) -> bool:
+    def check_experience_match(self, cv_skills: CVSkillsProfile, job_level: Optional[str]) -> bool:
         """
         Check if CV experience matches job requirements.
         Returns True if match is acceptable, False if should filter out.
@@ -153,7 +154,7 @@ class AIMatchingService:
         if not job_level:
             return True  # No experience requirement specified, allow
 
-        cv_years = cv_skills.get("years_experience")
+        cv_years = cv_skills.years_experience
         if not cv_years:
             return True  # Can't determine CV experience, allow
 
@@ -188,9 +189,9 @@ class AIMatchingService:
 
     def keyword_based_prescreening(
         self,
-        cv_skills: Dict[str, Any],
+        cv_skills: CVSkillsProfile,
         job_requirements: str
-    ) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    ) -> Tuple[bool, Optional[JobAnalysisResult]]:
         """
         Quick keyword-based screening BEFORE AI analysis.
         Returns (should_analyze, prescreen_result)
@@ -202,7 +203,7 @@ class AIMatchingService:
         job_tech_skills = job_words & self.tech_keywords
 
         # Get CV skills
-        cv_tech_skills = set(cv_skills["skills"])
+        cv_tech_skills = set(cv_skills.skills)
 
         # Calculate match
         if not job_tech_skills:
@@ -214,30 +215,30 @@ class AIMatchingService:
         # If less than 30% match, auto-reject (too many missing skills)
         if match_percentage < 30:
             missing_skills = list(job_tech_skills - cv_tech_skills)[:10]
-            return False, {
-                "score": "low",
-                "compatibility_percentage": int(match_percentage),
-                "matching_skills": list(matching)[:10],
-                "missing_requirements": missing_skills,
-                "needs_summary_change": False,
-                "suggested_summary": None,
-                "analysis_reasoning": f"Keyword pre-screening: Only {int(match_percentage)}% skill match. Missing critical skills: {', '.join(missing_skills[:3])}",
-                "prefiltered": True,
-                "prefilter_reason": "insufficient_skills",
-                "must_notify": False
-            }
+            return False, JobAnalysisResult(
+                score="low",
+                compatibility_percentage=int(match_percentage),
+                matching_skills=list(matching)[:10],
+                missing_requirements=missing_skills,
+                needs_summary_change=False,
+                suggested_summary=None,
+                analysis_reasoning=f"Keyword pre-screening: Only {int(match_percentage)}% skill match. Missing critical skills: {', '.join(missing_skills[:3])}",
+                prefiltered=True,
+                prefilter_reason="insufficient_skills",
+                must_notify=False
+            )
 
         # Good enough match, send to AI for detailed analysis
         return True, None
 
-    def prefilter_job(self, job_title: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
+    def prefilter_job(self, job_title: str) -> Tuple[bool, Optional[JobAnalysisResult]]:
         """
         Pre-filter job based on title keywords to save AI API calls.
 
         Returns:
             Tuple of (should_analyze, prefilter_result)
             - should_analyze: True if job should be sent to AI, False if pre-filtered
-            - prefilter_result: If pre-filtered, contains the result dict; None if should analyze
+            - prefilter_result: If pre-filtered, contains the JobAnalysisResult; None if should analyze
         """
         if not self.prefilter_enabled:
             return True, None
@@ -247,19 +248,19 @@ class AIMatchingService:
         # Check exclude keywords - if found, auto-reject
         for keyword in self.exclude_keywords:
             if keyword in title_lower:
-                return False, {
-                    "score": "low",
-                    "compatibility_percentage": 0,
-                    "matching_skills": [],
-                    "missing_requirements": [f"Job title contains excluded keyword: '{keyword}'"],
-                    "needs_summary_change": False,
-                    "suggested_summary": None,
-                    "analysis_reasoning": f"Auto-filtered: Job title '{job_title}' contains excluded keyword '{keyword}'",
-                    "prefiltered": True,
-                    "prefilter_reason": "excluded_keyword",
-                    "matched_keyword": keyword,
-                    "must_notify": False
-                }
+                return False, JobAnalysisResult(
+                    score="low",
+                    compatibility_percentage=0,
+                    matching_skills=[],
+                    missing_requirements=[f"Job title contains excluded keyword: '{keyword}'"],
+                    needs_summary_change=False,
+                    suggested_summary=None,
+                    analysis_reasoning=f"Auto-filtered: Job title '{job_title}' contains excluded keyword '{keyword}'",
+                    prefiltered=True,
+                    prefilter_reason="excluded_keyword",
+                    matched_keyword=keyword,
+                    must_notify=False
+                )
 
         # If include keywords are specified, job must match at least one
         if self.include_keywords:
@@ -269,18 +270,18 @@ class AIMatchingService:
                     matched = True
                     break
             if not matched:
-                return False, {
-                    "score": "low",
-                    "compatibility_percentage": 0,
-                    "matching_skills": [],
-                    "missing_requirements": ["Job title does not match required keywords"],
-                    "needs_summary_change": False,
-                    "suggested_summary": None,
-                    "analysis_reasoning": f"Auto-filtered: Job title '{job_title}' does not contain any required keywords",
-                    "prefiltered": True,
-                    "prefilter_reason": "missing_include_keyword",
-                    "must_notify": False
-                }
+                return False, JobAnalysisResult(
+                    score="low",
+                    compatibility_percentage=0,
+                    matching_skills=[],
+                    missing_requirements=["Job title does not match required keywords"],
+                    needs_summary_change=False,
+                    suggested_summary=None,
+                    analysis_reasoning=f"Auto-filtered: Job title '{job_title}' does not contain any required keywords",
+                    prefiltered=True,
+                    prefilter_reason="missing_include_keyword",
+                    must_notify=False
+                )
 
         # Job passed pre-filter, should be analyzed
         return True, None
@@ -295,7 +296,7 @@ class AIMatchingService:
         job_requirements: Optional[str] = None,
         job_location: Optional[str] = None,
         skip_prefilter: bool = False
-    ) -> Dict[str, Any]:
+    ) -> JobAnalysisResult:
         """
         Analyze how well a CV matches a job posting using Claude AI.
 
@@ -327,30 +328,30 @@ class AIMatchingService:
         # STEP 2: Apply title-based pre-filter
         if not skip_prefilter:
             should_analyze, prefilter_result = self.prefilter_job(job_title)
-            if not should_analyze:
-                # Add must_notify flag to prefiltered results
-                if prefilter_result:
-                    prefilter_result["must_notify"] = must_notify
-                    if must_notify:
-                        prefilter_result["must_notify_keyword"] = notify_keyword
-                print(f"  ⏭️  Title filtered: {job_title} - {prefilter_result.get('prefilter_reason')}")
-                return prefilter_result
+            if not should_analyze and prefilter_result:
+                # Update must_notify flag using model_copy
+                updated_result = prefilter_result.model_copy(update={
+                    "must_notify": must_notify,
+                    "must_notify_keyword": notify_keyword if must_notify else None
+                })
+                print(f"  ⏭️  Title filtered: {job_title} - {prefilter_result.prefilter_reason}")
+                return updated_result
 
         # STEP 3: Skip jobs without requirements (NEW!)
         if not job_requirements or len(job_requirements.strip()) < 50:
-            return {
-                "score": "low",
-                "compatibility_percentage": 0,
-                "matching_skills": [],
-                "missing_requirements": ["Job has no clear requirements specified"],
-                "needs_summary_change": False,
-                "suggested_summary": None,
-                "analysis_reasoning": "Skipped: Job posting lacks detailed requirements for proper matching",
-                "prefiltered": True,
-                "prefilter_reason": "no_requirements",
-                "must_notify": must_notify,
-                "must_notify_keyword": notify_keyword if must_notify else None
-            }
+            return JobAnalysisResult(
+                score="low",
+                compatibility_percentage=0,
+                matching_skills=[],
+                missing_requirements=["Job has no clear requirements specified"],
+                needs_summary_change=False,
+                suggested_summary=None,
+                analysis_reasoning="Skipped: Job posting lacks detailed requirements for proper matching",
+                prefiltered=True,
+                prefilter_reason="no_requirements",
+                must_notify=must_notify,
+                must_notify_keyword=notify_keyword if must_notify else None
+            )
 
         # STEP 4: Extract CV skills for smart analysis (NEW!)
         cv_skills = self.extract_cv_skills(cv_content)
@@ -359,39 +360,42 @@ class AIMatchingService:
         if not skip_prefilter:
             job_level = self.extract_experience_level(job_title, job_description)
             if not self.check_experience_match(cv_skills, job_level):
-                return {
-                    "score": "low",
-                    "compatibility_percentage": 0,
-                    "matching_skills": [],
-                    "missing_requirements": [f"Experience level mismatch: Job requires {job_level} level"],
-                    "needs_summary_change": False,
-                    "suggested_summary": None,
-                    "analysis_reasoning": f"Experience level filtering: Job requires {job_level}, candidate has ~{cv_skills.get('years_experience', 'unknown')} years",
-                    "prefiltered": True,
-                    "prefilter_reason": "experience_mismatch",
-                    "must_notify": must_notify,
-                    "must_notify_keyword": notify_keyword if must_notify else None
-                }
+                return JobAnalysisResult(
+                    score="low",
+                    compatibility_percentage=0,
+                    matching_skills=[],
+                    missing_requirements=[f"Experience level mismatch: Job requires {job_level} level"],
+                    needs_summary_change=False,
+                    suggested_summary=None,
+                    analysis_reasoning=f"Experience level filtering: Job requires {job_level}, candidate has ~{cv_skills.years_experience or 'unknown'} years",
+                    prefiltered=True,
+                    prefilter_reason="experience_mismatch",
+                    must_notify=must_notify,
+                    must_notify_keyword=notify_keyword if must_notify else None
+                )
 
         # STEP 6: Keyword-based pre-screening BEFORE AI (NEW! - Tier swap)
         if not skip_prefilter:
             should_analyze, prescreen_result = self.keyword_based_prescreening(cv_skills, job_requirements)
-            if not should_analyze:
-                prescreen_result["must_notify"] = must_notify
-                if must_notify:
-                    prescreen_result["must_notify_keyword"] = notify_keyword
+            if not should_analyze and prescreen_result:
+                # Update must_notify flag using model_copy
+                updated_result = prescreen_result.model_copy(update={
+                    "must_notify": must_notify,
+                    "must_notify_keyword": notify_keyword if must_notify else None
+                })
                 print(f"  ⏭️  Keyword filtered: {job_title} - insufficient skill match")
-                return prescreen_result
+                return updated_result
 
         # STEP 7: AI analysis (only if passed all filters)
         if not self.is_configured():
             fallback = self._fallback_keyword_analysis(
                 cv_content, job_title, job_description, job_requirements
             )
-            fallback["must_notify"] = must_notify
-            if must_notify:
-                fallback["must_notify_keyword"] = notify_keyword
-            return fallback
+            # Update must_notify flag using model_copy
+            return fallback.model_copy(update={
+                "must_notify": must_notify,
+                "must_notify_keyword": notify_keyword if must_notify else None
+            })
 
         # Build the job context - prioritize requirements over full description
         job_context = f"""
@@ -414,13 +418,13 @@ Job Description:
 
         # Build CV context using SMART TRUNCATION (NEW!)
         # Instead of sending full CV, send extracted skills summary
-        skills_str = ", ".join(cv_skills["skills"][:30])  # Top 30 skills
-        roles_str = "\n".join([f"- {role}" for role in cv_skills["recent_roles"]])
+        skills_str = ", ".join(cv_skills.skills[:30])  # Top 30 skills
+        roles_str = "\n".join([f"- {role}" for role in cv_skills.recent_roles])
 
         cv_context = f"""
 Candidate Profile:
 - Technical Skills: {skills_str}
-- Years of Experience: {cv_skills.get('years_experience', 'Not specified')}
+- Years of Experience: {cv_skills.years_experience or 'Not specified'}
 - Recent Roles:
 {roles_str if roles_str else '- See CV summary'}
 """
@@ -484,32 +488,32 @@ Respond ONLY with valid JSON, no markdown formatting or additional text."""
 
             # Validate and normalize response
             normalized = self._normalize_response(result)
-            # Add must_notify flag
-            normalized["must_notify"] = must_notify
-            if must_notify:
-                normalized["must_notify_keyword"] = notify_keyword
-            return normalized
+            # Add must_notify flag using model_copy
+            return normalized.model_copy(update={
+                "must_notify": must_notify,
+                "must_notify_keyword": notify_keyword if must_notify else None
+            })
 
         except json.JSONDecodeError as e:
             print(f"Error parsing AI response: {e}")
             fallback = self._fallback_keyword_analysis(
                 cv_content, job_title, job_description, job_requirements
             )
-            fallback["must_notify"] = must_notify
-            if must_notify:
-                fallback["must_notify_keyword"] = notify_keyword
-            return fallback
+            return fallback.model_copy(update={
+                "must_notify": must_notify,
+                "must_notify_keyword": notify_keyword if must_notify else None
+            })
         except Exception as e:
             print(f"Error calling Claude API: {e}")
             fallback = self._fallback_keyword_analysis(
                 cv_content, job_title, job_description, job_requirements
             )
-            fallback["must_notify"] = must_notify
-            if must_notify:
-                fallback["must_notify_keyword"] = notify_keyword
-            return fallback
+            return fallback.model_copy(update={
+                "must_notify": must_notify,
+                "must_notify_keyword": notify_keyword if must_notify else None
+            })
 
-    def _normalize_response(self, result: Dict) -> Dict[str, Any]:
+    def _normalize_response(self, result: Dict) -> JobAnalysisResult:
         """Normalize and validate the AI response"""
         # Ensure score is valid
         score = result.get("score", "medium").lower()
@@ -531,16 +535,16 @@ Respond ONLY with valid JSON, no markdown formatting or additional text."""
         if not isinstance(matching, list):
             matching = []
 
-        return {
-            "score": score,
-            "compatibility_percentage": compatibility,
-            "matching_skills": matching[:10],  # Limit to 10
-            "missing_requirements": missing[:10],  # Limit to 10
-            "needs_summary_change": bool(result.get("needs_summary_change", False)),
-            "suggested_summary": result.get("suggested_summary"),
-            "analysis_reasoning": result.get("analysis_reasoning", ""),
-            "prefiltered": False
-        }
+        return JobAnalysisResult(
+            score=score,
+            compatibility_percentage=compatibility,
+            matching_skills=matching[:10],  # Limit to 10
+            missing_requirements=missing[:10],  # Limit to 10
+            needs_summary_change=bool(result.get("needs_summary_change", False)),
+            suggested_summary=result.get("suggested_summary"),
+            analysis_reasoning=result.get("analysis_reasoning", ""),
+            prefiltered=False
+        )
 
     def _fallback_keyword_analysis(
         self,
@@ -548,7 +552,7 @@ Respond ONLY with valid JSON, no markdown formatting or additional text."""
         job_title: str,
         job_description: str,
         job_requirements: Optional[str]
-    ) -> Dict[str, Any]:
+    ) -> JobAnalysisResult:
         """
         Fallback to keyword-based analysis when AI is not available.
         This is a more sophisticated version of the original keyword matching.
@@ -609,16 +613,16 @@ Respond ONLY with valid JSON, no markdown formatting or additional text."""
         else:
             score = "low"
 
-        return {
-            "score": score,
-            "compatibility_percentage": compatibility,
-            "matching_skills": list(matching)[:10],
-            "missing_requirements": list(missing)[:10],
-            "needs_summary_change": len(missing) > 3,
-            "suggested_summary": None,
-            "analysis_reasoning": f"Keyword-based analysis: {len(matching)}/{len(job_important)} key skills matched",
-            "prefiltered": False
-        }
+        return JobAnalysisResult(
+            score=score,
+            compatibility_percentage=compatibility,
+            matching_skills=list(matching)[:10],
+            missing_requirements=list(missing)[:10],
+            needs_summary_change=len(missing) > 3,
+            suggested_summary=None,
+            analysis_reasoning=f"Keyword-based analysis: {len(matching)}/{len(job_important)} key skills matched",
+            prefiltered=False
+        )
 
     def generate_tailored_summary(
         self,
@@ -676,17 +680,17 @@ Respond with ONLY the summary text, no quotes or additional formatting."""
             print(f"Error generating summary: {e}")
             return None
 
-    def get_filter_config(self) -> Dict[str, Any]:
+    def get_filter_config(self) -> FilterConfigResponse:
         """Get current pre-filter configuration"""
-        return {
-            "prefilter_enabled": self.prefilter_enabled,
-            "exclude_keywords": self.exclude_keywords,
-            "include_keywords": self.include_keywords,
-            "must_notify_keywords": self.must_notify_keywords,
-            "exclude_count": len(self.exclude_keywords),
-            "include_count": len(self.include_keywords),
-            "must_notify_count": len(self.must_notify_keywords)
-        }
+        return FilterConfigResponse(
+            prefilter_enabled=self.prefilter_enabled,
+            exclude_keywords=self.exclude_keywords,
+            include_keywords=self.include_keywords,
+            must_notify_keywords=self.must_notify_keywords,
+            exclude_count=len(self.exclude_keywords),
+            include_count=len(self.include_keywords),
+            must_notify_count=len(self.must_notify_keywords)
+        )
 
     def batch_analyze_jobs(
         self,
@@ -695,20 +699,20 @@ Respond with ONLY the summary text, no quotes or additional formatting."""
         jobs: List[Dict[str, Any]],
         skip_prefilter: bool = False,
         max_high_matches: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> List[JobAnalysisResult]:
         """
         Analyze multiple jobs against a CV with SMART EARLY TERMINATION.
 
         NEW BEHAVIOR:
         - Stops after finding max_high_matches HIGH-scoring jobs
         - BUT always analyzes must-notify jobs regardless of early stop
-        - Returns list of analysis results in same order as input jobs
+        - Returns list of JobAnalysisResult in same order as input jobs
 
         Args:
             skip_prefilter: If True, skip pre-filtering for all jobs
             max_high_matches: Stop after N high matches (default: 5)
         """
-        results = []
+        results: List[JobAnalysisResult] = []
         prefiltered_count = 0
         analyzed_count = 0
         high_match_count = 0
@@ -731,19 +735,19 @@ Respond with ONLY the summary text, no quotes or additional formatting."""
 
             # Skip if early stopped and not must-notify
             if early_stopped and i not in must_notify_indices:
-                result = {
-                    "job_id": job.get("id"),
-                    "score": "low",
-                    "compatibility_percentage": 0,
-                    "matching_skills": [],
-                    "missing_requirements": [],
-                    "needs_summary_change": False,
-                    "suggested_summary": None,
-                    "analysis_reasoning": "Skipped: Early termination after finding enough high matches",
-                    "prefiltered": True,
-                    "prefilter_reason": "early_stop",
-                    "must_notify": False
-                }
+                result = JobAnalysisResult(
+                    job_id=job.get("id"),
+                    score="low",
+                    compatibility_percentage=0,
+                    matching_skills=[],
+                    missing_requirements=[],
+                    needs_summary_change=False,
+                    suggested_summary=None,
+                    analysis_reasoning="Skipped: Early termination after finding enough high matches",
+                    prefiltered=True,
+                    prefilter_reason="early_stop",
+                    must_notify=False
+                )
                 results.append(result)
                 prefiltered_count += 1
                 continue
@@ -759,15 +763,16 @@ Respond with ONLY the summary text, no quotes or additional formatting."""
                 job_location=job.get("location"),
                 skip_prefilter=skip_prefilter
             )
-            result["job_id"] = job.get("id")
+            # Add job_id using model_copy
+            result = result.model_copy(update={"job_id": job.get("id")})
             results.append(result)
 
             # Track statistics
-            if result.get("prefiltered"):
+            if result.prefiltered:
                 prefiltered_count += 1
             else:
                 analyzed_count += 1
-                if result.get("score") == "high":
+                if result.score == "high":
                     high_match_count += 1
 
         print(f"  ✅ Batch complete: {analyzed_count} analyzed, {prefiltered_count} pre-filtered, {high_match_count} high matches")
