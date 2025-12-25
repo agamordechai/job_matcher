@@ -8,7 +8,7 @@ from app.models import NotificationLog
 router = APIRouter()
 
 
-@router.post("/trigger", tags=["notifications"])
+@router.post("/trigger")
 def trigger_batch_notification(db: Session = Depends(get_db)):
     """
     Manually trigger batch email notification for new jobs
@@ -27,7 +27,7 @@ def trigger_batch_notification(db: Session = Depends(get_db)):
     }
 
 
-@router.get("/history", tags=["notifications"])
+@router.get("/history")
 def get_notification_history(
     limit: int = 20,
     db: Session = Depends(get_db)
@@ -60,7 +60,7 @@ def get_notification_history(
     }
 
 
-@router.get("/status", tags=["notifications"])
+@router.get("/status")
 def get_notification_status(db: Session = Depends(get_db)):
     """
     Get notification system status

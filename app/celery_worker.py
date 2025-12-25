@@ -126,18 +126,19 @@ def fetch_and_analyze_jobs():
                 for job_data in jobs:
                     # Check if job already exists
                     existing_job = job_service.get_job_by_external_id(
-                        job_data["external_job_id"]
+                        job_data.external_job_id
                     )
 
                     if existing_job:
                         jobs_duplicate += 1
                         continue
 
-                    # Add CV ID to job data
-                    job_data["cv_id"] = active_cv.id
+                    # Convert Pydantic model to dict and add CV ID
+                    job_dict = job_data.model_dump()
+                    job_dict["cv_id"] = active_cv.id
 
                     # Create job in database
-                    new_job = job_service.create_job(job_data)
+                    new_job = job_service.create_job(job_dict)
                     jobs_created += 1
                     new_job_ids.append(new_job.id)
 
@@ -235,19 +236,19 @@ def analyze_job(job_id: int):
             "medium": JobScore.MEDIUM,
             "low": JobScore.LOW
         }
-        score = score_map.get(analysis["score"], JobScore.MEDIUM)
-        compatibility = analysis["compatibility_percentage"]
-        missing_requirements = analysis["missing_requirements"]
-        suggested_summary = analysis.get("suggested_summary")
-        needs_summary_change = analysis.get("needs_summary_change", False)
-        must_notify = analysis.get("must_notify", False)
+        score = score_map.get(analysis.score.value if hasattr(analysis.score, 'value') else analysis.score, JobScore.MEDIUM)
+        compatibility = analysis.compatibility_percentage
+        missing_requirements = analysis.missing_requirements
+        suggested_summary = analysis.suggested_summary
+        needs_summary_change = analysis.needs_summary_change
+        must_notify = analysis.must_notify
 
         print(f"  Compatibility: {compatibility}% | Score: {score.value}")
         print(f"  Missing: {len(missing_requirements)} requirements")
-        if analysis.get("analysis_reasoning"):
-            print(f"  Reasoning: {analysis['analysis_reasoning']}")
+        if analysis.analysis_reasoning:
+            print(f"  Reasoning: {analysis.analysis_reasoning}")
         if must_notify:
-            print(f"  🔔 Must Notify: {analysis.get('must_notify_keyword', 'yes')}")
+            print(f"  🔔 Must Notify: {analysis.must_notify_keyword or 'yes'}")
 
         # Update job with analysis results
         job_service.update_job_analysis(
@@ -267,7 +268,7 @@ def analyze_job(job_id: int):
             "compatibility": compatibility,
             "missing_count": len(missing_requirements),
             "ai_powered": ai_service.is_configured(),
-            "reasoning": analysis.get("analysis_reasoning", "")
+            "reasoning": analysis.analysis_reasoning or ""
         }
 
     except Exception as e:
