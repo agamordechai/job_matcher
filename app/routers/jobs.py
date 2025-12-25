@@ -224,30 +224,30 @@ async def analyze_job(
         "medium": JobScore.MEDIUM,
         "low": JobScore.LOW
     }
-    score = score_map.get(analysis["score"], JobScore.MEDIUM)
+    score = score_map.get(analysis.score, JobScore.MEDIUM)
 
     # Update job
     job_service.update_job_analysis(
         job_id=job_id,
         score=score,
-        compatibility_percentage=analysis["compatibility_percentage"],
-        missing_requirements=analysis["missing_requirements"],
-        suggested_summary=analysis.get("suggested_summary"),
-        needs_summary_change=analysis.get("needs_summary_change", False),
-        must_notify=analysis.get("must_notify", False)
+        compatibility_percentage=analysis.compatibility_percentage,
+        missing_requirements=analysis.missing_requirements,
+        suggested_summary=analysis.suggested_summary,
+        needs_summary_change=analysis.needs_summary_change,
+        must_notify=analysis.must_notify
     )
 
     return {
         "status": "success",
         "job_id": job_id,
         "ai_powered": ai_service.is_configured(),
-        "score": analysis["score"],
-        "compatibility_percentage": analysis["compatibility_percentage"],
-        "matching_skills": analysis.get("matching_skills", []),
-        "missing_requirements": analysis["missing_requirements"],
-        "needs_summary_change": analysis.get("needs_summary_change", False),
-        "suggested_summary": analysis.get("suggested_summary"),
-        "analysis_reasoning": analysis.get("analysis_reasoning", "")
+        "score": analysis.score,
+        "compatibility_percentage": analysis.compatibility_percentage,
+        "matching_skills": analysis.matching_skills,
+        "missing_requirements": analysis.missing_requirements,
+        "needs_summary_change": analysis.needs_summary_change,
+        "suggested_summary": analysis.suggested_summary,
+        "analysis_reasoning": analysis.analysis_reasoning
     }
 
 
@@ -309,16 +309,16 @@ async def analyze_jobs_batch(
             )
 
             score_map = {"high": JobScore.HIGH, "medium": JobScore.MEDIUM, "low": JobScore.LOW}
-            score = score_map.get(analysis["score"], JobScore.MEDIUM)
+            score = score_map.get(analysis.score, JobScore.MEDIUM)
 
             job_service.update_job_analysis(
                 job_id=job.id,
                 score=score,
-                compatibility_percentage=analysis["compatibility_percentage"],
-                missing_requirements=analysis["missing_requirements"],
-                suggested_summary=analysis.get("suggested_summary"),
-                needs_summary_change=analysis.get("needs_summary_change", False),
-                must_notify=analysis.get("must_notify", False)
+                compatibility_percentage=analysis.compatibility_percentage,
+                missing_requirements=analysis.missing_requirements,
+                suggested_summary=analysis.suggested_summary,
+                needs_summary_change=analysis.needs_summary_change,
+                must_notify=analysis.must_notify
             )
 
             results.append({
@@ -326,8 +326,8 @@ async def analyze_jobs_batch(
                 "title": job.title,
                 "company": job.company,
                 "status": "success",
-                "score": analysis["score"],
-                "compatibility": analysis["compatibility_percentage"]
+                "score": analysis.score,
+                "compatibility": analysis.compatibility_percentage
             })
         except Exception as e:
             results.append({
